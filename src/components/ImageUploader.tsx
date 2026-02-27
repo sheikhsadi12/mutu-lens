@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { UploadCloud } from 'lucide-react';
 
 interface ImageUploaderProps {
-  onUpload: (files: File[]) => void | Promise<void>;
+  onUpload: (files: File[]) => void;
   disabled?: boolean;
 }
 

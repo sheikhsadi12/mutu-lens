@@ -13,9 +13,7 @@ import { Archive } from './components/Archive';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { SplashScreen } from './components/SplashScreen';
 import { Onboarding } from './components/Onboarding';
-import { FloatingActionMenu } from './components/FloatingActionMenu';
 import { extractTextFromImage } from './services/gemini';
-import { compressImage } from './utils/imageCompression';
 import { ProcessedImage } from './types';
 
 function AppContent() {
@@ -47,39 +45,6 @@ function AppContent() {
     if (!hasSeenOnboarding) {
       setShowOnboarding(true);
     }
-
-    // Check for shared files from Web Share Target
-    const checkSharedFiles = async () => {
-      if (window.location.search.includes('shared=true')) {
-        try {
-          const db = await new Promise<IDBDatabase>((resolve, reject) => {
-            const request = indexedDB.open('mutulens-share', 1);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-
-          const file = await new Promise<File | undefined>((resolve, reject) => {
-            const tx = db.transaction('shared-files', 'readwrite');
-            const store = tx.objectStore('shared-files');
-            const getReq = store.get('latest-shared-image');
-            getReq.onsuccess = () => {
-              store.delete('latest-shared-image'); // clear after reading
-              resolve(getReq.result);
-            };
-            getReq.onerror = () => reject(getReq.error);
-          });
-
-          if (file) {
-            handleUpload([file], true); // Auto-crop
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-          }
-        } catch (error) {
-          console.error('Error reading shared file:', error);
-        }
-      }
-    };
-    checkSharedFiles();
   }, []);
 
   const handleSplashComplete = () => {
@@ -96,91 +61,19 @@ function AppContent() {
     localStorage.setItem('mutulens-api-key', key);
   };
 
-  const handleUpload = useCallback(async (files: File[], autoCrop: boolean = false) => {
-    try {
-      // Compress all files before adding them to state to prevent memory crashes
-      const compressedFiles = await Promise.all(files.map(f => compressImage(f)));
-      
-      const newImages: ProcessedImage[] = compressedFiles.map(file => ({
-        id: Math.random().toString(36).substring(2, 15),
-        file,
-        previewUrl: URL.createObjectURL(file),
-        status: 'pending'
-      }));
-      
-      setImages(prev => {
-        const combined = [...prev, ...newImages];
-        return combined.slice(0, 20); // Max 20 units
-      });
-
-      if (autoCrop && newImages.length > 0) {
-        setCropImageId(newImages[0].id);
-      }
-    } catch (error) {
-      console.error('Error processing uploaded images:', error);
-      alert('There was an error processing your images. Please try again.');
-    }
+  const handleUpload = useCallback((files: File[]) => {
+    const newImages: ProcessedImage[] = files.map(file => ({
+      id: Math.random().toString(36).substring(2, 15),
+      file,
+      previewUrl: URL.createObjectURL(file),
+      status: 'pending'
+    }));
+    
+    setImages(prev => {
+      const combined = [...prev, ...newImages];
+      return combined.slice(0, 20); // Max 20 units
+    });
   }, []);
-
-  const handleCaptureScreen = async () => {
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-        alert('Screen capture is not supported on this device or browser. Please take a screenshot manually and share or upload it.');
-        return;
-      }
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      await video.play();
-
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const file = new File([blob], `screenshot_${Date.now()}.png`, { type: 'image/png' });
-            handleUpload([file], true); // Auto-crop
-          }
-          // Stop all tracks to end screen sharing
-          stream.getTracks().forEach(track => track.stop());
-        }, 'image/png');
-      }
-    } catch (err: any) {
-      console.error('Error capturing screen:', err);
-      if (err.name !== 'NotAllowedError') {
-        alert('Failed to capture screen. Your browser might block this feature in this context.');
-      }
-    }
-  };
-
-  const handlePasteClipboard = async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.read) {
-        alert('Clipboard reading is not supported or blocked on this device/browser. Please upload the image manually.');
-        return;
-      }
-      const clipboardItems = await navigator.clipboard.read();
-      let foundImage = false;
-      for (const clipboardItem of clipboardItems) {
-        const imageTypes = clipboardItem.types.filter(type => type.startsWith('image/'));
-        for (const imageType of imageTypes) {
-          foundImage = true;
-          const blob = await clipboardItem.getType(imageType);
-          const file = new File([blob], `pasted_${Date.now()}.${imageType.split('/')[1]}`, { type: imageType });
-          handleUpload([file], true); // Auto-crop
-        }
-      }
-      if (!foundImage) {
-         alert('No image found in clipboard. Please copy an image first.');
-      }
-    } catch (err: any) {
-      console.error('Failed to read clipboard contents: ', err);
-      alert('Could not read image from clipboard. Make sure you have copied an image and granted permissions.');
-    }
-  };
 
   const handleRemove = useCallback((id: string) => {
     setImages(prev => {
@@ -327,7 +220,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black text-black dark:text-white font-sans transition-colors duration-200 pb-[env(safe-area-inset-bottom)]">
+    <div className="min-h-screen bg-white dark:bg-black text-black dark:text-white font-sans transition-colors duration-200">
       <Header onOpenSettings={() => setIsSettingsOpen(true)} />
       
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
@@ -489,11 +382,6 @@ function AppContent() {
           onCropComplete={handleCropComplete}
         />
       )}
-
-      <FloatingActionMenu 
-        onCaptureScreen={handleCaptureScreen} 
-        onPasteClipboard={handlePasteClipboard} 
-      />
     </div>
   );
 }

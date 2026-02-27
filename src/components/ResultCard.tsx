@@ -49,10 +49,26 @@ export const ResultCard: React.FC<ResultCardProps> = ({ image }) => {
 
   const handleDownloadPDF = () => {
     if (image.extractedText) {
-      const doc = new jsPDF();
-      const splitText = doc.splitTextToSize(image.extractedText, 180);
-      doc.text(splitText, 15, 15);
-      doc.save(`extraction_${image.id.slice(0, 6)}.pdf`);
+      try {
+        const doc = new jsPDF();
+        const splitText = doc.splitTextToSize(image.extractedText, 180);
+        let y = 15;
+        const pageHeight = doc.internal.pageSize.height;
+        
+        for (let i = 0; i < splitText.length; i++) {
+          if (y > pageHeight - 15) {
+            doc.addPage();
+            y = 15;
+          }
+          doc.text(splitText[i], 15, y);
+          y += 7; // Line height
+        }
+        
+        doc.save(`extraction_${image.id.slice(0, 6)}.pdf`);
+      } catch (error) {
+        console.error('Failed to generate PDF:', error);
+        alert('Failed to generate PDF. The text might be too large or complex.');
+      }
     }
   };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, Copy, Download, Play, Layers, Database } from 'lucide-react';
+import { get, set } from 'idb-keyval';
 import { ThemeProvider } from './components/ThemeProvider';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
@@ -31,6 +32,47 @@ function AppContent() {
 
   // Cropper state
   const [cropImageId, setCropImageId] = useState<string | null>(null);
+
+  // Load workspace from IndexedDB on mount
+  useEffect(() => {
+    get('mutulens-workspace')
+      .then((savedImages: ProcessedImage[]) => {
+        if (savedImages && savedImages.length > 0) {
+          const restoredImages = savedImages.map(img => {
+            let url = '';
+            try {
+              if (img.file) {
+                url = URL.createObjectURL(img.file);
+              }
+            } catch (e) {
+              console.error('Failed to create object URL for file', e);
+            }
+            return {
+              ...img,
+              previewUrl: url
+            };
+          });
+          setImages(restoredImages);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  // Save workspace to IndexedDB on change
+  useEffect(() => {
+    if (images.length === 0) {
+      set('mutulens-workspace', []).catch(console.error);
+      return;
+    }
+    
+    // Omit previewUrl as it's a blob URL that won't work across sessions
+    const imagesToSave = images.map(img => ({
+      ...img,
+      previewUrl: ''
+    }));
+    
+    set('mutulens-workspace', imagesToSave).catch(console.error);
+  }, [images]);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('mutulens-api-key');
@@ -71,6 +113,11 @@ function AppContent() {
     
     setImages(prev => {
       const combined = [...prev, ...newImages];
+      if (combined.length > 20) {
+        // Revoke URLs for images that will be dropped
+        const dropped = combined.slice(20);
+        dropped.forEach(img => URL.revokeObjectURL(img.previewUrl));
+      }
       return combined.slice(0, 20); // Max 20 units
     });
   }, []);

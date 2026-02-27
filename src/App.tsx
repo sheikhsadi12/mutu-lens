@@ -124,6 +124,10 @@ function AppContent() {
 
   const handleCaptureScreen = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        alert('Screen capture is not supported on this device or browser. Please take a screenshot manually and share or upload it.');
+        return;
+      }
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       const video = document.createElement('video');
       video.srcObject = stream;
@@ -144,23 +148,35 @@ function AppContent() {
           stream.getTracks().forEach(track => track.stop());
         }, 'image/png');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error capturing screen:', err);
+      if (err.name !== 'NotAllowedError') {
+        alert('Failed to capture screen. Your browser might block this feature in this context.');
+      }
     }
   };
 
   const handlePasteClipboard = async () => {
     try {
+      if (!navigator.clipboard || !navigator.clipboard.read) {
+        alert('Clipboard reading is not supported or blocked on this device/browser. Please upload the image manually.');
+        return;
+      }
       const clipboardItems = await navigator.clipboard.read();
+      let foundImage = false;
       for (const clipboardItem of clipboardItems) {
         const imageTypes = clipboardItem.types.filter(type => type.startsWith('image/'));
         for (const imageType of imageTypes) {
+          foundImage = true;
           const blob = await clipboardItem.getType(imageType);
           const file = new File([blob], `pasted_${Date.now()}.${imageType.split('/')[1]}`, { type: imageType });
           handleUpload([file], true); // Auto-crop
         }
       }
-    } catch (err) {
+      if (!foundImage) {
+         alert('No image found in clipboard. Please copy an image first.');
+      }
+    } catch (err: any) {
       console.error('Failed to read clipboard contents: ', err);
       alert('Could not read image from clipboard. Make sure you have copied an image and granted permissions.');
     }

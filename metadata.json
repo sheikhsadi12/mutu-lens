@@ -1,5 +1,8 @@
 {
   "name": "MutuLens AI",
   "description": "A high-performance, Neural Engine themed OCR workspace using Gemini Vision AI.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "clipboard-read",
+    "display-capture"
+  ]
 }

@@ -13,6 +13,7 @@ import { Archive } from './components/Archive';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { SplashScreen } from './components/SplashScreen';
 import { Onboarding } from './components/Onboarding';
+import { FloatingActionMenu } from './components/FloatingActionMenu';
 import { extractTextFromImage } from './services/gemini';
 import { ProcessedImage } from './types';
 
@@ -45,6 +46,39 @@ function AppContent() {
     if (!hasSeenOnboarding) {
       setShowOnboarding(true);
     }
+
+    // Check for shared files from Web Share Target
+    const checkSharedFiles = async () => {
+      if (window.location.search.includes('shared=true')) {
+        try {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open('mutulens-share', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+
+          const file = await new Promise<File | undefined>((resolve, reject) => {
+            const tx = db.transaction('shared-files', 'readwrite');
+            const store = tx.objectStore('shared-files');
+            const getReq = store.get('latest-shared-image');
+            getReq.onsuccess = () => {
+              store.delete('latest-shared-image'); // clear after reading
+              resolve(getReq.result);
+            };
+            getReq.onerror = () => reject(getReq.error);
+          });
+
+          if (file) {
+            handleUpload([file], true); // Auto-crop
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } catch (error) {
+          console.error('Error reading shared file:', error);
+        }
+      }
+    };
+    checkSharedFiles();
   }, []);
 
   const handleSplashComplete = () => {
@@ -61,7 +95,7 @@ function AppContent() {
     localStorage.setItem('mutulens-api-key', key);
   };
 
-  const handleUpload = useCallback((files: File[]) => {
+  const handleUpload = useCallback((files: File[], autoCrop: boolean = false) => {
     const newImages: ProcessedImage[] = files.map(file => ({
       id: Math.random().toString(36).substring(2, 15),
       file,
@@ -73,7 +107,55 @@ function AppContent() {
       const combined = [...prev, ...newImages];
       return combined.slice(0, 20); // Max 20 units
     });
+
+    if (autoCrop && newImages.length > 0) {
+      setCropImageId(newImages[0].id);
+    }
   }, []);
+
+  const handleCaptureScreen = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      await video.play();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const file = new File([blob], `screenshot_${Date.now()}.png`, { type: 'image/png' });
+            handleUpload([file], true); // Auto-crop
+          }
+          // Stop all tracks to end screen sharing
+          stream.getTracks().forEach(track => track.stop());
+        }, 'image/png');
+      }
+    } catch (err) {
+      console.error('Error capturing screen:', err);
+    }
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const clipboardItem of clipboardItems) {
+        const imageTypes = clipboardItem.types.filter(type => type.startsWith('image/'));
+        for (const imageType of imageTypes) {
+          const blob = await clipboardItem.getType(imageType);
+          const file = new File([blob], `pasted_${Date.now()}.${imageType.split('/')[1]}`, { type: imageType });
+          handleUpload([file], true); // Auto-crop
+        }
+      }
+    } catch (err) {
+      console.error('Failed to read clipboard contents: ', err);
+      alert('Could not read image from clipboard. Make sure you have copied an image and granted permissions.');
+    }
+  };
 
   const handleRemove = useCallback((id: string) => {
     setImages(prev => {
@@ -382,6 +464,11 @@ function AppContent() {
           onCropComplete={handleCropComplete}
         />
       )}
+
+      <FloatingActionMenu 
+        onCaptureScreen={handleCaptureScreen} 
+        onPasteClipboard={handlePasteClipboard} 
+      />
     </div>
   );
 }

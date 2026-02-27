@@ -15,6 +15,7 @@ import { SplashScreen } from './components/SplashScreen';
 import { Onboarding } from './components/Onboarding';
 import { FloatingActionMenu } from './components/FloatingActionMenu';
 import { extractTextFromImage } from './services/gemini';
+import { compressImage } from './utils/imageCompression';
 import { ProcessedImage } from './types';
 
 function AppContent() {
@@ -95,21 +96,29 @@ function AppContent() {
     localStorage.setItem('mutulens-api-key', key);
   };
 
-  const handleUpload = useCallback((files: File[], autoCrop: boolean = false) => {
-    const newImages: ProcessedImage[] = files.map(file => ({
-      id: Math.random().toString(36).substring(2, 15),
-      file,
-      previewUrl: URL.createObjectURL(file),
-      status: 'pending'
-    }));
-    
-    setImages(prev => {
-      const combined = [...prev, ...newImages];
-      return combined.slice(0, 20); // Max 20 units
-    });
+  const handleUpload = useCallback(async (files: File[], autoCrop: boolean = false) => {
+    try {
+      // Compress all files before adding them to state to prevent memory crashes
+      const compressedFiles = await Promise.all(files.map(f => compressImage(f)));
+      
+      const newImages: ProcessedImage[] = compressedFiles.map(file => ({
+        id: Math.random().toString(36).substring(2, 15),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        status: 'pending'
+      }));
+      
+      setImages(prev => {
+        const combined = [...prev, ...newImages];
+        return combined.slice(0, 20); // Max 20 units
+      });
 
-    if (autoCrop && newImages.length > 0) {
-      setCropImageId(newImages[0].id);
+      if (autoCrop && newImages.length > 0) {
+        setCropImageId(newImages[0].id);
+      }
+    } catch (error) {
+      console.error('Error processing uploaded images:', error);
+      alert('There was an error processing your images. Please try again.');
     }
   }, []);
 
@@ -302,7 +311,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black text-black dark:text-white font-sans transition-colors duration-200">
+    <div className="min-h-screen bg-white dark:bg-black text-black dark:text-white font-sans transition-colors duration-200 pb-[env(safe-area-inset-bottom)]">
       <Header onOpenSettings={() => setIsSettingsOpen(true)} />
       
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
